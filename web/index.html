@@ -50,8 +50,8 @@
     // Cargar Google Maps API y inicializar helper cuando esté listo
     function loadGoogleMaps() {
       var script = document.createElement('script');
-      // En producción, esta key debe tener restricciones de dominio en Google Cloud Console
-      script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCvaUW5-70Fu4MwJdzgD8BqS2D_eJMpD84&callback=initDirectionsHelper';
+      // La API key se inyecta durante el build desde GitHub Secrets
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=GOOGLE_MAPS_API_KEY_PLACEHOLDER&callback=initDirectionsHelper';
       script.async = true;
       script.defer = true;
       document.head.appendChild(script);
