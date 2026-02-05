@@ -191,11 +191,22 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       setState(() => _isLoading = true);
       
-      // Usar OAuth redirect de Supabase (más confiable en web)
-      // Para desarrollo local, usar localhost
-      final redirectUrl = kIsWeb 
-        ? '${Uri.base.origin}'
-        : 'com.example.fossil_scout://auth/callback';
+      // Determinar redirect URL basándose en el entorno actual
+      String redirectUrl;
+      if (kIsWeb) {
+        final currentHost = Uri.base.host;
+        if (currentHost.contains('github.io')) {
+          // Producción en GitHub Pages
+          redirectUrl = 'https://dbaez.github.io/fossil-scout/';
+        } else {
+          // Desarrollo local
+          redirectUrl = Uri.base.origin;
+        }
+      } else {
+        redirectUrl = 'com.example.fossil_scout://auth/callback';
+      }
+      
+      debugPrint('OAuth redirect URL: $redirectUrl');
       
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
