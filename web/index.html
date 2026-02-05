@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <!-- Google Maps API - DirectionsService está incluido en el core, no necesita librería separada -->
+  <script>
+    // Helper function para crear DirectionsService desde Dart
+    // Esta función se ejecutará cuando Google Maps esté listo
+    window.initDirectionsHelper = function() {
+      console.log('initDirectionsHelper ejecutado, Google Maps cargado');
+      window.getDirectionsRoute = function(request, callback) {
+        console.log('getDirectionsRoute llamado', request);
+        if (typeof google !== 'undefined' && google.maps && google.maps.DirectionsService) {
+          try {
+            var service = new google.maps.DirectionsService();
+            console.log('DirectionsService creado, llamando route...');
+            service.route(request, function(result, status) {
+              console.log('DirectionsService callback:', status, result);
+              callback(result, status);
+            });
+          } catch (e) {
+            console.error('Error creando DirectionsService:', e);
+            callback(null, 'ERROR');
+          }
+        } else {
+          console.error('Google Maps no está disponible');
+          console.error('google:', typeof google);
+          console.error('google.maps:', typeof google !== 'undefined' ? typeof google.maps : 'undefined');
+          callback(null, 'NOT_LOADED');
+        }
+      };
+      console.log('getDirectionsRoute definido en window');
+    };
+    
+    // Cargar Google Maps API y inicializar helper cuando esté listo
+    function loadGoogleMaps() {
+      var script = document.createElement('script');
+      // En producción, esta key debe tener restricciones de dominio en Google Cloud Console
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCvaUW5-70Fu4MwJdzgD8BqS2D_eJMpD84&callback=initDirectionsHelper';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    
+    // Cargar cuando el DOM esté listo
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadGoogleMaps);
+    } else {
+      loadGoogleMaps();
+    }
+  </script>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="fossil_scout">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png" />
+
+  <title>fossil_scout</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+
+</html>
