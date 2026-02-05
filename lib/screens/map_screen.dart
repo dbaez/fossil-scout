@@ -1,3 +1,4 @@
+import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -5,12 +6,17 @@ import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/post_model.dart';
 import '../services/post_service.dart';
 import '../services/route_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/comments_section.dart';
 import '../l10n/app_localizations.dart';
+
+/// Distancia máxima (en km) para mostrar ruta interna.
+/// Si el fósil está más lejos, se abre la app de mapas externa.
+const double _maxInternalRouteDistance = 50.0;
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -310,6 +316,53 @@ class MapScreenState extends State<MapScreen>
     });
   }
   
+  /// Calcula la distancia en línea recta entre dos puntos (Haversine)
+  double _calculateDirectDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // km
+    final dLat = (lat2 - lat1) * pi / 180;
+    final dLon = (lon2 - lon1) * pi / 180;
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+        sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  /// Abre Google Maps o la app de mapas del usuario para navegar al destino
+  Future<void> _openExternalMaps(double destLat, double destLng, String? placeName) async {
+    // URL universal que funciona en todas las plataformas
+    final googleMapsUrl = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$destLat,$destLng&travelmode=driving'
+    );
+    
+    // URL alternativa para iOS Maps
+    final appleMapsUrl = Uri.parse(
+      'https://maps.apple.com/?daddr=$destLat,$destLng&dirflg=d'
+    );
+
+    try {
+      // Intentar abrir Google Maps primero
+      if (await canLaunchUrl(googleMapsUrl)) {
+        await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(appleMapsUrl)) {
+        // Fallback a Apple Maps en iOS
+        await launchUrl(appleMapsUrl, mode: LaunchMode.externalApplication);
+      } else {
+        // Si no hay app de mapas, abrir en el navegador
+        await launchUrl(googleMapsUrl, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo abrir la aplicación de mapas: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// Calcula la ruta óptima desde la ubicación actual hasta un post específico
   Future<void> _calculateRouteToPost(PostModel post) async {
     if (_currentPosition == null) {
@@ -318,6 +371,44 @@ class MapScreenState extends State<MapScreen>
           content: Text(AppLocalizations.of(context)!.currentLocationError),
         ),
       );
+      return;
+    }
+
+    // Calcular distancia directa primero
+    final directDistance = _calculateDirectDistance(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      post.lat,
+      post.lng,
+    );
+
+    // Si el fósil está muy lejos, preguntar si abrir app de mapas externa
+    if (directDistance > _maxInternalRouteDistance) {
+      final shouldOpenExternal = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Destino lejano'),
+          content: Text(
+            'Este fósil está a ${directDistance.toStringAsFixed(0)} km de distancia. '
+            '¿Deseas abrir Google Maps para navegar?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.map),
+              label: const Text('Abrir Maps'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldOpenExternal == true) {
+        await _openExternalMaps(post.lat, post.lng, post.description);
+      }
       return;
     }
 

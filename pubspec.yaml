@@ -22,6 +22,7 @@ dependencies:
   exif: ^3.3.0
   image: ^4.3.0
   pointer_interceptor: ^0.10.1
+  url_launcher: ^6.2.0
 
 dev_dependencies:
   flutter_test:
