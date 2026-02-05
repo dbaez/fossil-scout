@@ -42,6 +42,14 @@ class CompressionConfig {
     maxHeight: 400,
     quality: 70,
   );
+  
+  /// Configuración para envío a APIs de IA (Gemini, etc.)
+  /// Optimizada para velocidad: imágenes pequeñas pero con suficiente detalle
+  static const CompressionConfig forAI = CompressionConfig(
+    maxWidth: 800,
+    maxHeight: 800,
+    quality: 70,
+  );
 }
 
 /// Resultado de la compresión

@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:developer' as developer;
 import '../config/env_config.dart';
+import 'image_compression_service.dart';
 
 /// Acción a tomar después de la validación
 enum ValidationAction {
@@ -47,6 +47,24 @@ class GeminiService {
   // Usamos gemini-3-flash-preview que es el modelo más reciente
   static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
   
+  // Servicio de compresión para optimizar imágenes antes de enviar
+  final ImageCompressionService _compressionService = ImageCompressionService();
+  
+  /// Comprime una imagen para envío a Gemini (800x800, calidad 70)
+  Future<Uint8List> _compressForAI(Uint8List imageBytes) async {
+    try {
+      final result = await _compressionService.compressImage(
+        imageBytes,
+        config: CompressionConfig.forAI,
+      );
+      print('Imagen comprimida para Gemini: ${ImageCompressionService.formatFileSize(result.originalSize)} → ${ImageCompressionService.formatFileSize(result.compressedSize)} (${result.reductionPercent.toStringAsFixed(0)}% reducción)');
+      return result.bytes;
+    } catch (e) {
+      print('Error comprimiendo imagen para Gemini, usando original: $e');
+      return imageBytes;
+    }
+  }
+  
   /// Genera una descripción de una imagen usando Gemini 3 Flash
   /// 
   /// [imageBytes] - Los bytes de la imagen a analizar
@@ -58,8 +76,11 @@ class GeminiService {
     String imageMimeType,
   ) async {
     try {
+      // Comprimir imagen antes de enviar para mejorar velocidad
+      final compressedBytes = await _compressForAI(imageBytes);
+      
       // Convertir la imagen a base64
-      final base64Image = base64Encode(imageBytes);
+      final base64Image = base64Encode(compressedBytes);
       
       // Construir la URL con la API key
       final url = Uri.parse('$_baseUrl?key=$_apiKey');
@@ -196,8 +217,11 @@ class GeminiService {
     Uint8List imageBytes,
   ) async {
     try {
-      final mimeType = _getImageMimeType(imageBytes);
-      final base64Image = base64Encode(imageBytes);
+      // Comprimir imagen antes de enviar para mejorar velocidad
+      final compressedBytes = await _compressForAI(imageBytes);
+      
+      final mimeType = _getImageMimeType(compressedBytes);
+      final base64Image = base64Encode(compressedBytes);
       
       final url = Uri.parse('$_baseUrl?key=$_apiKey');
       
