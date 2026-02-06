@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -69,6 +70,12 @@ class _AddPostScreenState extends State<AddPostScreen> {
   
   // Si se necesita dirección manual (la foto no tiene GPS)
   bool _needsManualAddress = false;
+  
+  // Autocompletado de direcciones
+  List<PlaceSuggestion> _addressSuggestions = [];
+  bool _isLoadingSuggestions = false;
+  bool _showSuggestions = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -119,12 +126,14 @@ class _AddPostScreenState extends State<AddPostScreen> {
   }
   
   /// Extrae coordenadas GPS de los metadatos EXIF de la primera imagen
+  /// Si la imagen no tiene GPS, usa la ubicación del dispositivo como fallback
   Future<void> _extractCoordinatesFromImage(XFile image) async {
     try {
       final imageBytes = await image.readAsBytes();
       final exifCoords = await _exifService.getCoordinatesFromImage(imageBytes);
       
       if (exifCoords != null) {
+        // La imagen tiene coordenadas EXIF
         setState(() {
           _latitude = exifCoords.lat;
           _longitude = exifCoords.lng;
@@ -145,13 +154,67 @@ class _AddPostScreenState extends State<AddPostScreen> {
           );
         }
       } else {
-        // La imagen no tiene GPS, el usuario debe ingresar dirección manualmente
+        // La imagen no tiene GPS EXIF, intentar obtener ubicación del dispositivo
+        await _getDeviceLocationAsFallback();
+      }
+    } catch (e) {
+      print('Error extrayendo coordenadas de imagen: $e');
+      // En caso de error, intentar ubicación del dispositivo
+      await _getDeviceLocationAsFallback();
+    }
+  }
+  
+  /// Obtiene la ubicación del dispositivo como fallback (sin mostrar error si falla)
+  Future<void> _getDeviceLocationAsFallback() async {
+    setState(() => _isGettingLocation = true);
+    
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission != LocationPermission.denied &&
+          permission != LocationPermission.deniedForever) {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        ).timeout(const Duration(seconds: 10));
+        
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _coordinateSource = CoordinateSource.device;
+          _needsManualAddress = false;
+          _isGettingLocation = false;
+        });
+        
+        // Auto-completar dirección desde la ubicación del dispositivo
+        await _getAddressFromCoordinates();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.my_location, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Ubicación obtenida del dispositivo')),
+                ],
+              ),
+              backgroundColor: Colors.blue,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+      } else {
+        // Sin permiso de ubicación, pedir dirección manual
         setState(() {
           _needsManualAddress = true;
           _coordinateSource = CoordinateSource.none;
-          _latitude = null;
-          _longitude = null;
-          _addressController.clear();
+          _isGettingLocation = false;
         });
         
         if (mounted) {
@@ -165,10 +228,23 @@ class _AddPostScreenState extends State<AddPostScreen> {
         }
       }
     } catch (e) {
-      print('Error extrayendo coordenadas de imagen: $e');
+      print('Error obteniendo ubicación del dispositivo: $e');
+      // Sin ubicación disponible, pedir dirección manual
       setState(() {
         _needsManualAddress = true;
+        _coordinateSource = CoordinateSource.none;
+        _isGettingLocation = false;
       });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.noGpsInPhoto),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
   
@@ -238,6 +314,94 @@ class _AddPostScreenState extends State<AddPostScreen> {
       return false;
     }
   }
+  
+  /// Busca sugerencias de direcciones con debounce
+  void _searchAddressSuggestions(String query) {
+    _debounceTimer?.cancel();
+    
+    if (query.trim().length < 3) {
+      setState(() {
+        _addressSuggestions = [];
+        _showSuggestions = false;
+      });
+      return;
+    }
+    
+    _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
+      if (!mounted) return;
+      
+      setState(() => _isLoadingSuggestions = true);
+      
+      try {
+        final suggestions = await _geocodingService.getAddressSuggestions(query);
+        if (mounted) {
+          setState(() {
+            _addressSuggestions = suggestions;
+            _showSuggestions = suggestions.isNotEmpty;
+            _isLoadingSuggestions = false;
+          });
+        }
+      } catch (e) {
+        print('Error buscando sugerencias: $e');
+        if (mounted) {
+          setState(() {
+            _isLoadingSuggestions = false;
+            _showSuggestions = false;
+          });
+        }
+      }
+    });
+  }
+  
+  /// Selecciona una sugerencia de dirección
+  Future<void> _selectAddressSuggestion(PlaceSuggestion suggestion) async {
+    setState(() {
+      _addressController.text = suggestion.description;
+      _showSuggestions = false;
+      _addressSuggestions = [];
+      _isGettingAddress = true;
+    });
+    
+    // Obtener coordenadas del lugar seleccionado
+    try {
+      final details = await _geocodingService.getPlaceDetails(suggestion.placeId);
+      
+      if (details != null && mounted) {
+        setState(() {
+          _latitude = details.lat;
+          _longitude = details.lng;
+          _coordinateSource = CoordinateSource.manual;
+          _needsManualAddress = false;
+          _isGettingAddress = false;
+          if (details.formattedAddress != null) {
+            _addressController.text = details.formattedAddress!;
+          }
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.check_circle, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Expanded(child: Text('Ubicación confirmada')),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      } else {
+        setState(() => _isGettingAddress = false);
+      }
+    } catch (e) {
+      print('Error obteniendo detalles del lugar: $e');
+      setState(() => _isGettingAddress = false);
+    }
+  }
 
   Future<void> _pickImages() async {
     try {
@@ -247,11 +411,11 @@ class _AddPostScreenState extends State<AddPostScreen> {
           _selectedImages = images;
         });
         
-        // Extraer coordenadas de la primera imagen
-        await _extractCoordinatesFromImage(images.first);
-        
-        // Generar descripción automáticamente con la primera imagen
-        await _generateDescriptionFromFirstImage();
+        // Ejecutar en paralelo: extracción de coordenadas + análisis con IA
+        await Future.wait([
+          _extractCoordinatesFromImage(images.first),
+          _generateDescriptionFromFirstImage(),
+        ]);
       }
     } catch (e) {
       if (mounted) {
@@ -271,13 +435,16 @@ class _AddPostScreenState extends State<AddPostScreen> {
           _selectedImages.add(image);
         });
         
-        // Si es la primera imagen, extraer coordenadas
+        // Ejecutar en paralelo: extracción de coordenadas (si es primera) + análisis con IA
         if (isFirstImage) {
-          await _extractCoordinatesFromImage(image);
+          await Future.wait([
+            _extractCoordinatesFromImage(image),
+            _generateDescriptionFromFirstImage(),
+          ]);
+        } else {
+          // Si no es la primera imagen, solo generar descripción
+          await _generateDescriptionFromFirstImage();
         }
-        
-        // Generar descripción automáticamente con la nueva imagen
-        await _generateDescriptionFromFirstImage();
       }
     } catch (e) {
       if (mounted) {
@@ -852,20 +1019,94 @@ class _AddPostScreenState extends State<AddPostScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _addressController,
-            decoration: InputDecoration(
-              labelText: l10n.address,
-              hintText: l10n.addressPlaceholder,
-              border: const OutlineInputBorder(),
-              prefixIcon: const Icon(Icons.location_on),
-            ),
-            validator: (value) {
-              if (_needsManualAddress && (value == null || value.trim().isEmpty)) {
-                return l10n.addressRequired;
-              }
-              return null;
-            },
+          // Campo de dirección con autocompletado
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextFormField(
+                controller: _addressController,
+                decoration: InputDecoration(
+                  labelText: l10n.address,
+                  hintText: l10n.addressPlaceholder,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.location_on),
+                  suffixIcon: _isLoadingSuggestions
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : _addressController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 20),
+                              onPressed: () {
+                                setState(() {
+                                  _addressController.clear();
+                                  _showSuggestions = false;
+                                  _addressSuggestions = [];
+                                });
+                              },
+                            )
+                          : null,
+                ),
+                onChanged: _searchAddressSuggestions,
+                onTap: () {
+                  if (_addressController.text.length >= 3) {
+                    _searchAddressSuggestions(_addressController.text);
+                  }
+                },
+                validator: (value) {
+                  if (_needsManualAddress && (value == null || value.trim().isEmpty)) {
+                    return l10n.addressRequired;
+                  }
+                  return null;
+                },
+              ),
+              // Lista de sugerencias
+              if (_showSuggestions && _addressSuggestions.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: _addressSuggestions.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final suggestion = _addressSuggestions[index];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.place, color: AppTheme.primaryColor, size: 20),
+                        title: Text(
+                          suggestion.mainText,
+                          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          suggestion.secondaryText,
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: () => _selectAddressSuggestion(suggestion),
+                      );
+                    },
+                  ),
+                ),
+            ],
           ),
         ],
       );
@@ -1645,21 +1886,51 @@ class _AddPostScreenState extends State<AddPostScreen> {
 
   /// Construye el icono de estado de ubicación
   Widget? _buildLocationStatusIcon() {
-    if (_coordinateSource == CoordinateSource.exif) {
+    final l10n = AppLocalizations.of(context)!;
+    
+    // Mostrar estado cuando tenemos ubicación válida
+    if (_coordinateSource != CoordinateSource.none && 
+        _latitude != null && 
+        _longitude != null) {
+      
+      String label;
+      IconData icon;
+      Color color;
+      
+      switch (_coordinateSource) {
+        case CoordinateSource.exif:
+          label = l10n.locationDetected;
+          icon = Icons.photo_camera;
+          color = Colors.green;
+          break;
+        case CoordinateSource.device:
+          label = 'GPS';
+          icon = Icons.my_location;
+          color = Colors.blue;
+          break;
+        case CoordinateSource.manual:
+          label = 'Manual';
+          icon = Icons.edit_location;
+          color = Colors.orange;
+          break;
+        default:
+          return null;
+      }
+      
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.1),
+          color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 14),
+            Icon(icon, color: color, size: 14),
             const SizedBox(width: 4),
             Text(
-              AppLocalizations.of(context)!.locationDetected,
-              style: const TextStyle(color: Colors.green, fontSize: 11),
+              label,
+              style: TextStyle(color: color, fontSize: 11),
             ),
           ],
         ),
@@ -1679,10 +1950,28 @@ class _AddPostScreenState extends State<AddPostScreen> {
       );
     }
     
-    if (_coordinateSource == CoordinateSource.exif && _addressController.text.isNotEmpty) {
-      return Text(
-        _addressController.text,
-        style: const TextStyle(fontSize: 14),
+    // Mostrar dirección si tenemos coordenadas (de EXIF, dispositivo o manual)
+    if ((_coordinateSource == CoordinateSource.exif || 
+         _coordinateSource == CoordinateSource.device ||
+         _coordinateSource == CoordinateSource.manual) && 
+        _addressController.text.isNotEmpty) {
+      return Row(
+        children: [
+          Icon(
+            _coordinateSource == CoordinateSource.exif 
+                ? Icons.photo_camera 
+                : Icons.my_location,
+            size: 16,
+            color: Colors.green,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _addressController.text,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+        ],
       );
     }
     
@@ -1721,6 +2010,24 @@ class _AddPostScreenState extends State<AddPostScreen> {
       );
     }
     
+    // Cargando ubicación
+    if (_isGettingLocation || _isGettingAddress) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            l10n.gettingAddress,
+            style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
+          ),
+        ],
+      );
+    }
+    
     return Text(
       l10n.locationWaiting,
       style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
@@ -1728,7 +2035,9 @@ class _AddPostScreenState extends State<AddPostScreen> {
   }
 
   @override
+  @override
   void dispose() {
+    _debounceTimer?.cancel();
     _descriptionController.dispose();
     _addressController.dispose();
     _rockTypeController.dispose();

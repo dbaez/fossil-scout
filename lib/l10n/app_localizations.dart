@@ -26,7 +26,7 @@ class AppLocalizations {
       'noFindingsYet': 'No hay hallazgos aún',
       'beFirstToDiscover': '¡Sé el primero en descubrir un fósil!',
       'distance': 'Distancia',
-      'antiquity': 'Antigüedad',
+      'antiquity': 'Ordenar por fecha',
       
       // Posts
       'postApproved': 'Post aprobado exitosamente',
@@ -129,7 +129,7 @@ class AppLocalizations {
       'noFindingsYet': 'No findings yet',
       'beFirstToDiscover': 'Be the first to discover a fossil!',
       'distance': 'Distance',
-      'antiquity': 'Antiquity',
+      'antiquity': 'Sort by Date',
       
       // Posts
       'postApproved': 'Post approved successfully',
@@ -232,7 +232,7 @@ class AppLocalizations {
       'noFindingsYet': 'Aucune découverte pour le moment',
       'beFirstToDiscover': 'Soyez le premier à découvrir un fossile !',
       'distance': 'Distance',
-      'antiquity': 'Antiquité',
+      'antiquity': 'Trier par date',
       
       // Posts
       'postApproved': 'Publication approuvée avec succès',
@@ -335,7 +335,7 @@ class AppLocalizations {
       'noFindingsYet': 'Nessun ritrovamento ancora',
       'beFirstToDiscover': 'Sii il primo a scoprire un fossile!',
       'distance': 'Distanza',
-      'antiquity': 'Antichità',
+      'antiquity': 'Ordina per data',
       
       // Posts
       'postApproved': 'Post approvato con successo',
@@ -438,7 +438,7 @@ class AppLocalizations {
       'noFindingsYet': 'Noch keine Funde',
       'beFirstToDiscover': 'Seien Sie der Erste, der ein Fossil entdeckt!',
       'distance': 'Entfernung',
-      'antiquity': 'Altertum',
+      'antiquity': 'Nach Datum sortieren',
       
       // Posts
       'postApproved': 'Beitrag erfolgreich genehmigt',
