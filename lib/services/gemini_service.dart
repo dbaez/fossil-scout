@@ -37,6 +37,17 @@ class ImageValidationResult {
   bool get isValid => action != ValidationAction.block;
 }
 
+/// Resultado de la generación de descripción con material
+class FossilDescriptionResult {
+  final String description;
+  final String? material;
+
+  FossilDescriptionResult({
+    required this.description,
+    this.material,
+  });
+}
+
 /// Servicio para interactuar con la API de Gemini
 /// Usa el modelo Gemini 3 Flash
 class GeminiService {
@@ -204,6 +215,99 @@ class GeminiService {
   Future<String?> generateImageDescriptionAuto(Uint8List imageBytes) async {
     final mimeType = _getImageMimeType(imageBytes);
     return await generateImageDescription(imageBytes, mimeType);
+  }
+
+  /// Genera descripción Y tipo de material del fósil
+  /// Retorna un FossilDescriptionResult con descripción y material
+  Future<FossilDescriptionResult?> generateDescriptionWithMaterial(Uint8List imageBytes) async {
+    try {
+      // Comprimir imagen antes de enviar
+      final compressedBytes = await _compressForAI(imageBytes);
+      final mimeType = _getImageMimeType(compressedBytes);
+      final base64Image = base64Encode(compressedBytes);
+      
+      final url = Uri.parse('$_baseUrl?key=$_apiKey');
+      
+      final requestBody = {
+        'contents': [
+          {
+            'parts': [
+              {
+                'text': '''Actúa como un experto en paleontología urbana. Analiza el fósil en esta imagen y responde SOLO con JSON en este formato exacto:
+
+{
+  "description": "Descripción técnica del fósil (máximo 200 caracteres). Incluye: taxón/tipo, periodo geológico y observación técnica.",
+  "material": "Tipo de material/sustrato donde se encuentra (ej: Caliza, Mármol, Arenisca, Granito, etc.)"
+}
+
+Sé preciso y usa terminología científica. Responde SOLO con el JSON, sin texto adicional.'''
+              },
+              {
+                'inline_data': {
+                  'mime_type': mimeType,
+                  'data': base64Image,
+                }
+              }
+            ]
+          }
+        ],
+        'generationConfig': {
+          'temperature': 0.3,
+          'topK': 32,
+          'topP': 1,
+          'maxOutputTokens': 400,
+        }
+      };
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      ).timeout(const Duration(seconds: 30));
+      
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        
+        if (responseData['candidates'] != null &&
+            responseData['candidates'].isNotEmpty &&
+            responseData['candidates'][0]['content'] != null &&
+            responseData['candidates'][0]['content']['parts'] != null &&
+            responseData['candidates'][0]['content']['parts'].isNotEmpty) {
+          
+          final text = responseData['candidates'][0]['content']['parts'][0]['text'] as String;
+          final cleanedText = text.trim();
+          
+          try {
+            // Extraer JSON de la respuesta
+            String jsonText = cleanedText;
+            final jsonStart = jsonText.indexOf('{');
+            final jsonEnd = jsonText.lastIndexOf('}');
+            if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+            }
+            
+            final data = jsonDecode(jsonText) as Map<String, dynamic>;
+            return FossilDescriptionResult(
+              description: data['description'] as String? ?? cleanedText,
+              material: data['material'] as String?,
+            );
+          } catch (e) {
+            // Si no se puede parsear JSON, devolver el texto como descripción
+            print('Error parseando JSON de descripción: $e');
+            return FossilDescriptionResult(description: cleanedText);
+          }
+        }
+      } else {
+        print('Error en la API de Gemini: ${response.statusCode}');
+        if (response.statusCode == 400 || response.statusCode == 403) {
+          throw Exception('Error de autenticación. Verifica la API key de Gemini.');
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error generando descripción con material: $e');
+      rethrow;
+    }
   }
 
   /// Valida si una imagen es apropiada y está relacionada con fósiles

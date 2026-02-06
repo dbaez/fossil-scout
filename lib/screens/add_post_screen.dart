@@ -328,18 +328,22 @@ class _AddPostScreenState extends State<AddPostScreen> {
       final firstImage = _selectedImages.first;
       final imageBytes = await firstImage.readAsBytes();
       
-      // Generar descripción con Gemini
-      final description = await _geminiService.generateImageDescriptionAuto(imageBytes);
+      // Generar descripción y material con Gemini
+      final result = await _geminiService.generateDescriptionWithMaterial(imageBytes);
       
-      if (description != null && mounted) {
+      if (result != null && mounted) {
         setState(() {
-          _descriptionController.text = description;
+          _descriptionController.text = result.description;
+          // También completar el tipo de material si viene
+          if (result.material != null && result.material!.isNotEmpty) {
+            _rockTypeController.text = result.material!;
+          }
           _isGeneratingDescription = false;
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Descripción generada automáticamente'),
+            content: Text('✅ Descripción y material generados automáticamente'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
           ),
@@ -1085,17 +1089,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
                           ),
                   ),
                   const Divider(height: 24),
-                  // Ubicación
-                  _buildDetailField(
-                    label: l10n.locationLabel,
-                    icon: Icons.location_on,
-                    isLoading: _isGettingAddress || _isGettingLocation,
-                    loadingText: l10n.gettingAddress,
-                    statusIcon: _buildLocationStatusIcon(),
-                    child: _buildLocationContent(),
-                  ),
-                  const Divider(height: 24),
-                  // Tipo de material
+                  // Tipo de material (generado por IA junto con descripción)
                   _buildDetailField(
                     label: '${l10n.materialTypeLabel} (${l10n.optional})',
                     icon: Icons.category,
@@ -1107,6 +1101,16 @@ class _AddPostScreenState extends State<AddPostScreen> {
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
+                  ),
+                  const Divider(height: 24),
+                  // Ubicación
+                  _buildDetailField(
+                    label: l10n.locationLabel,
+                    icon: Icons.location_on,
+                    isLoading: _isGettingAddress || _isGettingLocation,
+                    loadingText: l10n.gettingAddress,
+                    statusIcon: _buildLocationStatusIcon(),
+                    child: _buildLocationContent(),
                   ),
                 ],
               ),
