@@ -246,15 +246,6 @@ class MapScreenState extends State<MapScreen>
                             subtitle: Text(post.rockType!),
                             contentPadding: EdgeInsets.zero,
                           ),
-                        ListTile(
-                          leading: const Icon(Icons.map),
-                          title: Text(AppLocalizations.of(context)!.coordinates),
-                          subtitle: Text(
-                            'Lat: ${post.lat.toStringAsFixed(6)}\n'
-                            'Lng: ${post.lng.toStringAsFixed(6)}',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
                         
                         const SizedBox(height: 16),
                         
@@ -1196,19 +1187,10 @@ class MapScreenState extends State<MapScreen>
                         ),
                       ),
                     if (post.rockType != null)
-                      ListTile(
-                        leading: const Icon(Icons.category),
-                        title: const Text('Tipo de material'),
-                        subtitle: Text(post.rockType!),
-                        contentPadding: EdgeInsets.zero,
-                      ),
                     ListTile(
-                      leading: const Icon(Icons.map),
-                      title: const Text('Coordenadas'),
-                      subtitle: Text(
-                        'Lat: ${post.lat.toStringAsFixed(6)}\n'
-                        'Lng: ${post.lng.toStringAsFixed(6)}',
-                      ),
+                      leading: const Icon(Icons.category),
+                      title: const Text('Tipo de material'),
+                      subtitle: Text(post.rockType!),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ],
