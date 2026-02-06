@@ -233,14 +233,13 @@ class GeminiService {
           {
             'parts': [
               {
-                'text': '''Actúa como un experto en paleontología urbana. Analiza el fósil en esta imagen y responde SOLO con JSON en este formato exacto:
+                'text': '''Actúa como un experto en paleontología urbana. Analiza el fósil en esta imagen.
 
-{
-  "description": "Descripción técnica del fósil (máximo 200 caracteres). Incluye: taxón/tipo, periodo geológico y observación técnica.",
-  "material": "Tipo de material/sustrato donde se encuentra (ej: Caliza, Mármol, Arenisca, Granito, etc.)"
-}
+Responde en EXACTAMENTE 2 líneas con este formato:
+DESCRIPCION: [Descripción técnica del fósil, máximo 200 caracteres. Incluye taxón/tipo y periodo geológico]
+MATERIAL: [Tipo de roca o material donde se encuentra, ej: Caliza, Mármol, Arenisca, Granito]
 
-Sé preciso y usa terminología científica. Responde SOLO con el JSON, sin texto adicional.'''
+Sé preciso y usa terminología científica. Solo 2 líneas, sin texto adicional.'''
               },
               {
                 'inline_data': {
@@ -277,28 +276,41 @@ Sé preciso y usa terminología científica. Responde SOLO con el JSON, sin text
           final text = responseData['candidates'][0]['content']['parts'][0]['text'] as String;
           final cleanedText = text.trim();
           
-          try {
-            // Extraer JSON de la respuesta
-            String jsonText = cleanedText;
-            final jsonStart = jsonText.indexOf('{');
-            final jsonEnd = jsonText.lastIndexOf('}');
-            if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+          // Parsear el formato DESCRIPCION: ... MATERIAL: ...
+          String? description;
+          String? material;
+          
+          final lines = cleanedText.split('\n');
+          for (final line in lines) {
+            final trimmedLine = line.trim();
+            if (trimmedLine.toUpperCase().startsWith('DESCRIPCION:') || 
+                trimmedLine.toUpperCase().startsWith('DESCRIPCIÓN:')) {
+              description = trimmedLine.substring(trimmedLine.indexOf(':') + 1).trim();
+            } else if (trimmedLine.toUpperCase().startsWith('MATERIAL:')) {
+              material = trimmedLine.substring(trimmedLine.indexOf(':') + 1).trim();
             }
-            
-            final data = jsonDecode(jsonText) as Map<String, dynamic>;
-            return FossilDescriptionResult(
-              description: data['description'] as String? ?? cleanedText,
-              material: data['material'] as String?,
-            );
-          } catch (e) {
-            // Si no se puede parsear JSON, devolver el texto como descripción
-            print('Error parseando JSON de descripción: $e');
-            return FossilDescriptionResult(description: cleanedText);
           }
+          
+          // Si no se encontró el formato esperado, usar el texto completo como descripción
+          if (description == null || description.isEmpty) {
+            // Limpiar cualquier prefijo de formato que pueda haber quedado
+            description = cleanedText
+                .replaceAll(RegExp(r'DESCRIPCION:\s*', caseSensitive: false), '')
+                .replaceAll(RegExp(r'DESCRIPCIÓN:\s*', caseSensitive: false), '')
+                .replaceAll(RegExp(r'MATERIAL:\s*.*', caseSensitive: false), '')
+                .trim();
+          }
+          
+          print('Gemini response parsed - Description: $description, Material: $material');
+          
+          return FossilDescriptionResult(
+            description: description.isNotEmpty ? description : cleanedText,
+            material: material,
+          );
         }
       } else {
         print('Error en la API de Gemini: ${response.statusCode}');
+        print('Response: ${response.body}');
         if (response.statusCode == 400 || response.statusCode == 403) {
           throw Exception('Error de autenticación. Verifica la API key de Gemini.');
         }
