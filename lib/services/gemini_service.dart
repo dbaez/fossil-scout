@@ -233,13 +233,18 @@ class GeminiService {
           {
             'parts': [
               {
-                'text': '''Actúa como un experto en paleontología urbana. Analiza el fósil en esta imagen.
+                'text': '''Eres un divulgador de paleontología. Analiza el fósil en esta imagen de un material de construcción urbano.
 
 Responde en EXACTAMENTE 2 líneas con este formato:
-DESCRIPCION: [Descripción técnica del fósil, máximo 200 caracteres. Incluye taxón/tipo y periodo geológico]
-MATERIAL: [Tipo de roca o material donde se encuentra, ej: Caliza, Mármol, Arenisca, Granito]
 
-Sé preciso y usa terminología científica. Solo 2 líneas, sin texto adicional.'''
+DESCRIPCION: [Nombre del fósil] del [periodo geológico]. [Dato curioso o interesante sobre este organismo en 1-2 frases]. Tiene aproximadamente [X] millones de años.
+MATERIAL: [Tipo exacto de roca: Caliza, Mármol, Travertino, Arenisca, Granito, Pizarra, etc.]
+
+Ejemplo de respuesta correcta:
+DESCRIPCION: Nummulites (foraminífero gigante) del Eoceno. Estos organismos unicelulares formaban enormes colonias en mares cálidos y poco profundos. Tiene aproximadamente 50 millones de años.
+MATERIAL: Caliza nummulítica
+
+IMPORTANTE: Siempre incluye AMBAS líneas. La descripción debe ser educativa e interesante para el público general, no solo técnica.'''
               },
               {
                 'inline_data': {
@@ -251,10 +256,10 @@ Sé preciso y usa terminología científica. Solo 2 líneas, sin texto adicional
           }
         ],
         'generationConfig': {
-          'temperature': 0.3,
-          'topK': 32,
-          'topP': 1,
-          'maxOutputTokens': 400,
+          'temperature': 0.5,
+          'topK': 40,
+          'topP': 0.95,
+          'maxOutputTokens': 500,
         }
       };
       
