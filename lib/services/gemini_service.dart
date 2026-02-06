@@ -228,30 +228,22 @@ class GeminiService {
       
       final url = Uri.parse('$_baseUrl?key=$_apiKey');
       
+      // Prompt simplificado y más directo para mejor respuesta
       final requestBody = {
         'contents': [
           {
             'parts': [
               {
-                'text': '''Analiza el fósil en esta imagen de un material de construcción urbano.
+                'text': '''Eres un paleontólogo experto. Analiza el fósil en esta imagen.
 
-DEBES responder en formato JSON con esta estructura exacta:
-{
-  "descripcion": "Nombre del fósil del periodo geológico. Dato curioso o interesante sobre este organismo. Tiene aproximadamente X millones de años.",
-  "material": "Tipo de roca (Caliza, Mármol, Travertino, Arenisca, Granito, Pizarra, etc.)"
-}
+Responde EXACTAMENTE con estas 2 líneas (sin añadir nada más):
 
-Ejemplo de respuesta:
-{
-  "descripcion": "Nummulites (foraminífero gigante) del Eoceno. Estos organismos unicelulares formaban enormes colonias en mares cálidos y poco profundos. Tiene aproximadamente 50 millones de años.",
-  "material": "Caliza nummulítica"
-}
+DESCRIPCION: [Tipo de fósil] del [periodo]. [Dato curioso en 1-2 frases]. Antigüedad aproximada: [X] millones de años.
+MATERIAL: [Tipo de roca donde está el fósil]
 
-IMPORTANTE: 
-- Responde SOLO con el JSON, sin texto adicional
-- SIEMPRE incluye ambos campos: descripcion y material
-- La descripción debe ser educativa e interesante
-- El material debe especificar el tipo exacto de roca'''
+Ejemplo:
+DESCRIPCION: Nummulites (foraminífero gigante) del Eoceno. Estos organismos unicelulares formaban colonias en mares cálidos. Antigüedad aproximada: 50 millones de años.
+MATERIAL: Caliza nummulítica'''
               },
               {
                 'inline_data': {
@@ -263,10 +255,10 @@ IMPORTANTE:
           }
         ],
         'generationConfig': {
-          'temperature': 0.4,
-          'topK': 32,
-          'topP': 0.9,
-          'maxOutputTokens': 400,
+          'temperature': 0.3,
+          'topK': 20,
+          'topP': 0.8,
+          'maxOutputTokens': 300,
         }
       };
       
@@ -288,112 +280,117 @@ IMPORTANTE:
           final text = responseData['candidates'][0]['content']['parts'][0]['text'] as String;
           final cleanedText = text.trim();
           
-          print('Gemini raw response: $cleanedText');
+          developer.log('Gemini raw response: $cleanedText', name: 'GeminiService');
           
-          // Intentar parsear como JSON primero (formato preferido)
           String? description;
           String? material;
           
-          try {
-            // Extraer JSON del texto (puede estar envuelto en markdown ```json```)
-            String jsonText = cleanedText;
+          // Estrategia 1: Buscar formato DESCRIPCION: y MATERIAL: en líneas
+          final lines = cleanedText.split('\n');
+          for (final line in lines) {
+            final trimmedLine = line.trim();
+            if (trimmedLine.isEmpty) continue;
             
-            // Remover bloques de código markdown si existen
-            if (jsonText.contains('```')) {
-              final jsonMatch = RegExp(r'```(?:json)?\s*([\s\S]*?)```').firstMatch(jsonText);
-              if (jsonMatch != null) {
-                jsonText = jsonMatch.group(1)?.trim() ?? jsonText;
-              }
+            // Buscar DESCRIPCION o DESCRIPCIÓN (con o sin comillas)
+            final descMatch = RegExp(
+              r'^["\s]*(?:DESCRIPCION|DESCRIPCIÓN)["\s]*:\s*(.+)',
+              caseSensitive: false,
+            ).firstMatch(trimmedLine);
+            
+            if (descMatch != null) {
+              description = _cleanFieldValue(descMatch.group(1) ?? '');
+              developer.log('Found description: $description', name: 'GeminiService');
             }
             
-            // Encontrar el JSON en el texto
-            final jsonStart = jsonText.indexOf('{');
-            final jsonEnd = jsonText.lastIndexOf('}');
-            if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
-            }
+            // Buscar MATERIAL
+            final matMatch = RegExp(
+              r'^["\s]*MATERIAL["\s]*:\s*(.+)',
+              caseSensitive: false,
+            ).firstMatch(trimmedLine);
             
-            final parsed = jsonDecode(jsonText) as Map<String, dynamic>;
-            description = parsed['descripcion'] as String? ?? 
-                          parsed['description'] as String?;
-            material = parsed['material'] as String? ?? 
-                       parsed['rock_type'] as String? ??
-                       parsed['tipo_material'] as String?;
-            
-            print('Parsed JSON - Description: $description, Material: $material');
-          } catch (jsonError) {
-            print('JSON parse failed, trying line format: $jsonError');
-            
-            // Fallback: parsear formato de líneas DESCRIPCION: ... MATERIAL: ...
-            final lines = cleanedText.split('\n');
-            for (final line in lines) {
-              final trimmedLine = line.trim();
-              final upperLine = trimmedLine.toUpperCase();
-              
-              if (upperLine.startsWith('DESCRIPCION:') || 
-                  upperLine.startsWith('DESCRIPCIÓN:') ||
-                  upperLine.startsWith('"DESCRIPCION":') ||
-                  upperLine.startsWith('"DESCRIPCIÓN":')) {
-                final colonIndex = trimmedLine.indexOf(':');
-                if (colonIndex != -1) {
-                  description = trimmedLine.substring(colonIndex + 1)
-                      .replaceAll(RegExp(r'^[\s"]+'), '')
-                      .replaceAll(RegExp(r'[",]+$'), '')
-                      .trim();
-                }
-              } else if (upperLine.startsWith('MATERIAL:') ||
-                         upperLine.startsWith('"MATERIAL":')) {
-                final colonIndex = trimmedLine.indexOf(':');
-                if (colonIndex != -1) {
-                  material = trimmedLine.substring(colonIndex + 1)
-                      .replaceAll(RegExp(r'^[\s"]+'), '')
-                      .replaceAll(RegExp(r'[",]+$'), '')
-                      .trim();
-                }
-              }
+            if (matMatch != null) {
+              material = _cleanFieldValue(matMatch.group(1) ?? '');
+              developer.log('Found material: $material', name: 'GeminiService');
             }
           }
           
-          // Si aún no hay descripción, usar el texto limpio
+          // Estrategia 2: Si no encontró el formato de líneas, intentar JSON
           if (description == null || description.isEmpty) {
+            try {
+              String jsonText = cleanedText;
+              
+              // Remover bloques de código markdown
+              final markdownMatch = RegExp(r'```(?:json)?\s*([\s\S]*?)```').firstMatch(jsonText);
+              if (markdownMatch != null) {
+                jsonText = markdownMatch.group(1)?.trim() ?? jsonText;
+              }
+              
+              // Extraer JSON
+              final jsonStart = jsonText.indexOf('{');
+              final jsonEnd = jsonText.lastIndexOf('}');
+              if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+                jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+                final parsed = jsonDecode(jsonText) as Map<String, dynamic>;
+                
+                description = parsed['descripcion'] as String? ?? 
+                              parsed['description'] as String? ??
+                              parsed['desc'] as String?;
+                material = parsed['material'] as String? ?? 
+                           parsed['rock_type'] as String? ??
+                           parsed['roca'] as String?;
+                
+                developer.log('Parsed from JSON - Desc: $description, Mat: $material', name: 'GeminiService');
+              }
+            } catch (e) {
+              developer.log('JSON parse failed: $e', name: 'GeminiService');
+            }
+          }
+          
+          // Estrategia 3: Si todavía no hay descripción, usar todo el texto limpio
+          if (description == null || description.isEmpty) {
+            // Limpiar el texto de cualquier formato residual
             description = cleanedText
-                .replaceAll(RegExp(r'```(?:json)?\s*', caseSensitive: false), '')
-                .replaceAll(RegExp(r'```', caseSensitive: false), '')
-                .replaceAll(RegExp(r'\{[^}]*\}', caseSensitive: false), '')
-                .replaceAll(RegExp(r'DESCRIPCION:\s*', caseSensitive: false), '')
-                .replaceAll(RegExp(r'DESCRIPCIÓN:\s*', caseSensitive: false), '')
-                .replaceAll(RegExp(r'MATERIAL:\s*.*', caseSensitive: false), '')
+                .replaceAll(RegExp(r'```[\s\S]*?```'), '')
+                .replaceAll(RegExp(r'\{[\s\S]*?\}'), '')
+                .replaceAll(RegExp(r'^["\s]*(?:DESCRIPCION|DESCRIPCIÓN)["\s]*:\s*', caseSensitive: false, multiLine: true), '')
+                .replaceAll(RegExp(r'^["\s]*MATERIAL["\s]*:\s*.*$', caseSensitive: false, multiLine: true), '')
+                .replaceAll(RegExp(r'[\r\n]+'), ' ')
                 .trim();
+            
+            developer.log('Using cleaned text as description: $description', name: 'GeminiService');
           }
           
-          // Limpiar material de caracteres JSON residuales
-          if (material != null) {
-            material = material
-                .replaceAll(RegExp(r'^[\s"]+'), '')
-                .replaceAll(RegExp(r'[\s"]+$'), '')
-                .trim();
-            if (material.isEmpty) material = null;
-          }
-          
-          print('Final parsed - Description: $description, Material: $material');
+          developer.log('Final result - Description: "$description", Material: "$material"', name: 'GeminiService');
           
           return FossilDescriptionResult(
-            description: description.isNotEmpty ? description : cleanedText,
+            description: description.isNotEmpty ? description : 'Fósil identificado en la imagen',
             material: material,
           );
         }
       } else {
-        print('Error en la API de Gemini: ${response.statusCode}');
-        print('Response: ${response.body}');
+        developer.log('Error en la API de Gemini: ${response.statusCode}', name: 'GeminiService');
+        developer.log('Response: ${response.body}', name: 'GeminiService');
         if (response.statusCode == 400 || response.statusCode == 403) {
           throw Exception('Error de autenticación. Verifica la API key de Gemini.');
         }
       }
       return null;
     } catch (e) {
-      print('Error generando descripción con material: $e');
+      developer.log('Error generando descripción con material: $e', name: 'GeminiService');
       rethrow;
     }
+  }
+  
+  /// Limpia el valor de un campo extraído (quita comillas, comas finales, etc.)
+  String _cleanFieldValue(String value) {
+    return value
+        .replaceAll(RegExp(r'^[\s"]+'), '')    // Quitar comillas dobles y espacios al inicio
+        .replaceAll(RegExp("^[\\s']+"), '')    // Quitar comillas simples y espacios al inicio
+        .replaceAll(RegExp(r'[\s",]+$'), '')   // Quitar comillas, comas y espacios al final
+        .replaceAll(RegExp("[']+\$"), '')      // Quitar comillas simples al final
+        .replaceAll(RegExp(r'^\{'), '')        // Quitar llaves
+        .replaceAll(RegExp(r'\}$'), '')
+        .trim();
   }
 
   /// Valida si una imagen es apropiada y está relacionada con fósiles
