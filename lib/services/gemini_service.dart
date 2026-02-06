@@ -233,18 +233,25 @@ class GeminiService {
           {
             'parts': [
               {
-                'text': '''Eres un divulgador de paleontología. Analiza el fósil en esta imagen de un material de construcción urbano.
+                'text': '''Analiza el fósil en esta imagen de un material de construcción urbano.
 
-Responde en EXACTAMENTE 2 líneas con este formato:
+DEBES responder en formato JSON con esta estructura exacta:
+{
+  "descripcion": "Nombre del fósil del periodo geológico. Dato curioso o interesante sobre este organismo. Tiene aproximadamente X millones de años.",
+  "material": "Tipo de roca (Caliza, Mármol, Travertino, Arenisca, Granito, Pizarra, etc.)"
+}
 
-DESCRIPCION: [Nombre del fósil] del [periodo geológico]. [Dato curioso o interesante sobre este organismo en 1-2 frases]. Tiene aproximadamente [X] millones de años.
-MATERIAL: [Tipo exacto de roca: Caliza, Mármol, Travertino, Arenisca, Granito, Pizarra, etc.]
+Ejemplo de respuesta:
+{
+  "descripcion": "Nummulites (foraminífero gigante) del Eoceno. Estos organismos unicelulares formaban enormes colonias en mares cálidos y poco profundos. Tiene aproximadamente 50 millones de años.",
+  "material": "Caliza nummulítica"
+}
 
-Ejemplo de respuesta correcta:
-DESCRIPCION: Nummulites (foraminífero gigante) del Eoceno. Estos organismos unicelulares formaban enormes colonias en mares cálidos y poco profundos. Tiene aproximadamente 50 millones de años.
-MATERIAL: Caliza nummulítica
-
-IMPORTANTE: Siempre incluye AMBAS líneas. La descripción debe ser educativa e interesante para el público general, no solo técnica.'''
+IMPORTANTE: 
+- Responde SOLO con el JSON, sin texto adicional
+- SIEMPRE incluye ambos campos: descripcion y material
+- La descripción debe ser educativa e interesante
+- El material debe especificar el tipo exacto de roca'''
               },
               {
                 'inline_data': {
@@ -256,10 +263,10 @@ IMPORTANTE: Siempre incluye AMBAS líneas. La descripción debe ser educativa e 
           }
         ],
         'generationConfig': {
-          'temperature': 0.5,
-          'topK': 40,
-          'topP': 0.95,
-          'maxOutputTokens': 500,
+          'temperature': 0.4,
+          'topK': 32,
+          'topP': 0.9,
+          'maxOutputTokens': 400,
         }
       };
       
@@ -281,32 +288,94 @@ IMPORTANTE: Siempre incluye AMBAS líneas. La descripción debe ser educativa e 
           final text = responseData['candidates'][0]['content']['parts'][0]['text'] as String;
           final cleanedText = text.trim();
           
-          // Parsear el formato DESCRIPCION: ... MATERIAL: ...
+          print('Gemini raw response: $cleanedText');
+          
+          // Intentar parsear como JSON primero (formato preferido)
           String? description;
           String? material;
           
-          final lines = cleanedText.split('\n');
-          for (final line in lines) {
-            final trimmedLine = line.trim();
-            if (trimmedLine.toUpperCase().startsWith('DESCRIPCION:') || 
-                trimmedLine.toUpperCase().startsWith('DESCRIPCIÓN:')) {
-              description = trimmedLine.substring(trimmedLine.indexOf(':') + 1).trim();
-            } else if (trimmedLine.toUpperCase().startsWith('MATERIAL:')) {
-              material = trimmedLine.substring(trimmedLine.indexOf(':') + 1).trim();
+          try {
+            // Extraer JSON del texto (puede estar envuelto en markdown ```json```)
+            String jsonText = cleanedText;
+            
+            // Remover bloques de código markdown si existen
+            if (jsonText.contains('```')) {
+              final jsonMatch = RegExp(r'```(?:json)?\s*([\s\S]*?)```').firstMatch(jsonText);
+              if (jsonMatch != null) {
+                jsonText = jsonMatch.group(1)?.trim() ?? jsonText;
+              }
+            }
+            
+            // Encontrar el JSON en el texto
+            final jsonStart = jsonText.indexOf('{');
+            final jsonEnd = jsonText.lastIndexOf('}');
+            if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+            }
+            
+            final parsed = jsonDecode(jsonText) as Map<String, dynamic>;
+            description = parsed['descripcion'] as String? ?? 
+                          parsed['description'] as String?;
+            material = parsed['material'] as String? ?? 
+                       parsed['rock_type'] as String? ??
+                       parsed['tipo_material'] as String?;
+            
+            print('Parsed JSON - Description: $description, Material: $material');
+          } catch (jsonError) {
+            print('JSON parse failed, trying line format: $jsonError');
+            
+            // Fallback: parsear formato de líneas DESCRIPCION: ... MATERIAL: ...
+            final lines = cleanedText.split('\n');
+            for (final line in lines) {
+              final trimmedLine = line.trim();
+              final upperLine = trimmedLine.toUpperCase();
+              
+              if (upperLine.startsWith('DESCRIPCION:') || 
+                  upperLine.startsWith('DESCRIPCIÓN:') ||
+                  upperLine.startsWith('"DESCRIPCION":') ||
+                  upperLine.startsWith('"DESCRIPCIÓN":')) {
+                final colonIndex = trimmedLine.indexOf(':');
+                if (colonIndex != -1) {
+                  description = trimmedLine.substring(colonIndex + 1)
+                      .replaceAll(RegExp(r'^[\s"]+'), '')
+                      .replaceAll(RegExp(r'[",]+$'), '')
+                      .trim();
+                }
+              } else if (upperLine.startsWith('MATERIAL:') ||
+                         upperLine.startsWith('"MATERIAL":')) {
+                final colonIndex = trimmedLine.indexOf(':');
+                if (colonIndex != -1) {
+                  material = trimmedLine.substring(colonIndex + 1)
+                      .replaceAll(RegExp(r'^[\s"]+'), '')
+                      .replaceAll(RegExp(r'[",]+$'), '')
+                      .trim();
+                }
+              }
             }
           }
           
-          // Si no se encontró el formato esperado, usar el texto completo como descripción
+          // Si aún no hay descripción, usar el texto limpio
           if (description == null || description.isEmpty) {
-            // Limpiar cualquier prefijo de formato que pueda haber quedado
             description = cleanedText
+                .replaceAll(RegExp(r'```(?:json)?\s*', caseSensitive: false), '')
+                .replaceAll(RegExp(r'```', caseSensitive: false), '')
+                .replaceAll(RegExp(r'\{[^}]*\}', caseSensitive: false), '')
                 .replaceAll(RegExp(r'DESCRIPCION:\s*', caseSensitive: false), '')
                 .replaceAll(RegExp(r'DESCRIPCIÓN:\s*', caseSensitive: false), '')
                 .replaceAll(RegExp(r'MATERIAL:\s*.*', caseSensitive: false), '')
                 .trim();
           }
           
-          print('Gemini response parsed - Description: $description, Material: $material');
+          // Limpiar material de caracteres JSON residuales
+          if (material != null) {
+            material = material
+                .replaceAll(RegExp(r'^[\s"]+'), '')
+                .replaceAll(RegExp(r'[\s"]+$'), '')
+                .trim();
+            if (material.isEmpty) material = null;
+          }
+          
+          print('Final parsed - Description: $description, Material: $material');
           
           return FossilDescriptionResult(
             description: description.isNotEmpty ? description : cleanedText,

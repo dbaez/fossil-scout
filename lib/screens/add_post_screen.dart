@@ -341,11 +341,39 @@ class _AddPostScreenState extends State<AddPostScreen> {
           _isGeneratingDescription = false;
         });
         
+        // Mostrar mensaje según lo que se completó
+        final hasDescription = result.description.isNotEmpty;
+        final hasMaterial = result.material != null && result.material!.isNotEmpty;
+        
+        String message;
+        if (hasDescription && hasMaterial) {
+          message = 'Análisis completado: descripción y material identificados';
+        } else if (hasDescription) {
+          message = 'Descripción generada. El material puede completarse manualmente.';
+        } else {
+          message = 'Análisis parcial. Puedes editar los campos manualmente.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Descripción y material generados automáticamente'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  hasDescription && hasMaterial ? Icons.check_circle : Icons.info_outline,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(child: Text(message)),
+              ],
+            ),
+            backgroundColor: hasDescription && hasMaterial 
+                ? const Color(0xFF2E7D32) // Verde más elegante
+                : Colors.blueGrey,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            margin: const EdgeInsets.all(16),
           ),
         );
       } else {
@@ -355,9 +383,18 @@ class _AddPostScreenState extends State<AddPostScreen> {
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No se pudo generar la descripción automáticamente'),
-              backgroundColor: Colors.orange,
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(child: Text('No se pudo analizar la imagen. Completa los campos manualmente.')),
+                ],
+              ),
+              backgroundColor: Colors.orange[700],
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              margin: const EdgeInsets.all(16),
             ),
           );
         }
@@ -1047,61 +1084,86 @@ class _AddPostScreenState extends State<AddPostScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Descripción
+                  // ===== Sección de análisis de IA =====
                   const SizedBox(height: 12),
-                  _buildDetailField(
-                    label: l10n.descriptionLabel,
-                    icon: Icons.description,
-                    isLoading: _isGeneratingDescription,
-                    loadingText: l10n.descriptionGenerating,
-                    child: _selectedImages.isEmpty
-                        ? Text(
-                            l10n.descriptionHint,
-                            style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextFormField(
-                                controller: _descriptionController,
-                                decoration: InputDecoration(
-                                  hintText: l10n.descriptionHint,
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                maxLines: 3,
-                                enabled: !_isGeneratingDescription,
-                              ),
-                              if (!_isGeneratingDescription && _descriptionController.text.isNotEmpty)
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    onPressed: _generateDescriptionFromFirstImage,
-                                    icon: const Icon(Icons.refresh, size: 16),
-                                    label: Text(l10n.regenerateDescription),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.primaryColor,
-                                      textStyle: const TextStyle(fontSize: 12),
+                  
+                  // Mostrar UI unificada durante el análisis de IA
+                  if (_isGeneratingDescription)
+                    _buildAIAnalysisCard(l10n)
+                  else ...[
+                    // Descripción (después del análisis)
+                    _buildDetailField(
+                      label: l10n.descriptionLabel,
+                      icon: Icons.description,
+                      isLoading: false,
+                      child: _selectedImages.isEmpty
+                          ? Text(
+                              l10n.descriptionHint,
+                              style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  decoration: BoxDecoration(
+                                    color: _descriptionController.text.isNotEmpty 
+                                        ? Colors.green.withOpacity(0.05) 
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: TextFormField(
+                                    controller: _descriptionController,
+                                    decoration: InputDecoration(
+                                      hintText: l10n.descriptionHint,
+                                      border: InputBorder.none,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                                     ),
+                                    maxLines: 3,
+                                    style: const TextStyle(fontSize: 14, height: 1.4),
                                   ),
                                 ),
-                            ],
+                                if (_descriptionController.text.isNotEmpty)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: _generateDescriptionFromFirstImage,
+                                      icon: const Icon(Icons.auto_awesome, size: 16),
+                                      label: Text(l10n.regenerateDescription),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppTheme.primaryColor,
+                                        textStyle: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                    const Divider(height: 24),
+                    // Tipo de material
+                    _buildDetailField(
+                      label: '${l10n.materialTypeLabel} (${l10n.optional})',
+                      icon: Icons.category,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        decoration: BoxDecoration(
+                          color: _rockTypeController.text.isNotEmpty 
+                              ? Colors.green.withOpacity(0.05) 
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: TextFormField(
+                          controller: _rockTypeController,
+                          decoration: InputDecoration(
+                            hintText: l10n.materialTypeHint,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                           ),
-                  ),
-                  const Divider(height: 24),
-                  // Tipo de material (generado por IA junto con descripción)
-                  _buildDetailField(
-                    label: '${l10n.materialTypeLabel} (${l10n.optional})',
-                    icon: Icons.category,
-                    child: TextFormField(
-                      controller: _rockTypeController,
-                      decoration: InputDecoration(
-                        hintText: l10n.materialTypeHint,
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
+                          style: const TextStyle(fontSize: 14),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                   const Divider(height: 24),
                   // Ubicación
                   _buildDetailField(
@@ -1340,44 +1402,244 @@ class _AddPostScreenState extends State<AddPostScreen> {
     String? loadingText,
     Widget? statusIcon,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 18, color: Colors.grey[600]),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-                fontSize: 13,
-              ),
-            ),
-            const Spacer(),
-            if (statusIcon != null) statusIcon,
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (isLoading)
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: Column(
+        key: ValueKey('$label-$isLoading'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Row(
             children: [
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              Icon(icon, size: 18, color: Colors.grey[600]),
               const SizedBox(width: 8),
               Text(
-                loadingText ?? '',
-                style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                  fontSize: 13,
+                ),
+              ),
+              const Spacer(),
+              if (statusIcon != null) statusIcon,
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (isLoading)
+            _buildShimmerPlaceholder(loadingText)
+          else
+            child,
+        ],
+      ),
+    );
+  }
+  
+  /// Construye una tarjeta unificada y atractiva para el análisis de IA
+  Widget _buildAIAnalysisCard(AppLocalizations l10n) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor.withOpacity(0.08),
+            AppTheme.primaryColor.withOpacity(0.04),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header con icono animado
+          Row(
+            children: [
+              _buildPulsingIcon(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Analizando fósil...',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primaryColor,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'La IA está identificando el fósil y el material',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
-          )
-        else
-          child,
-      ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Placeholders para descripción y material
+          _buildAnalysisFieldPlaceholder(
+            icon: Icons.description,
+            label: l10n.descriptionLabel,
+          ),
+          const SizedBox(height: 12),
+          _buildAnalysisFieldPlaceholder(
+            icon: Icons.category,
+            label: l10n.materialTypeLabel,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Icono pulsante para el análisis de IA
+  Widget _buildPulsingIcon() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.8, end: 1.2),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeInOut,
+      builder: (context, scale, child) {
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.auto_awesome,
+              color: AppTheme.primaryColor,
+              size: 22,
+            ),
+          ),
+        );
+      },
+      onEnd: () {
+        // Este callback se llama al terminar la animación
+        // El widget se reconstruirá automáticamente
+      },
+    );
+  }
+  
+  /// Placeholder de campo durante el análisis
+  Widget _buildAnalysisFieldPlaceholder({
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey[400]),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey[500],
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                AppTheme.primaryColor.withOpacity(0.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Construye un placeholder animado tipo shimmer para campos en carga
+  Widget _buildShimmerPlaceholder(String? loadingText) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.3, end: 1.0),
+      duration: const Duration(milliseconds: 800),
+      builder: (context, value, child) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 1.0, end: 0.3),
+          duration: const Duration(milliseconds: 800),
+          builder: (context, value2, child2) {
+            final opacity = (value + value2) / 2;
+            return Opacity(
+              opacity: opacity,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppTheme.primaryColor.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          AppTheme.primaryColor.withOpacity(0.7),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 10,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            height: 10,
+                            width: 120,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
