@@ -258,7 +258,10 @@ MATERIAL: Caliza nummulítica'''
           'temperature': 0.3,
           'topK': 32,
           'topP': 0.9,
-          'maxOutputTokens': 800,
+          'maxOutputTokens': 2048,
+          'thinkingConfig': {
+            'thinkingBudget': 0,
+          },
         }
       };
       
